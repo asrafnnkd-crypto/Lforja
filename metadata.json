@@ -1,0 +1,6 @@
+{
+  "name": "Lfraja 2.3",
+  "description": "Lfraja 2.3 live matches and TV channels streaming player optimized for Morocco data offers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
