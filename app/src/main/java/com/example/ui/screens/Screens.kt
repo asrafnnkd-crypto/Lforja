@@ -10,9 +10,11 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,10 +27,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -46,15 +58,16 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.data.models.Channel
 import com.example.data.models.Match
 import com.example.data.models.UserAccount
 import com.example.ui.MainViewModel
 
-// Define Colors matching Lfraja 2.3 branding
-val LfrajaPurple = Color(0xFF7E36FF)
-val LfrajaLightPurple = Color(0xFFF3E8FF)
-val LfrajaDeepPurple = Color(0xFF4C1D95)
+// Define Colors matching Lfraja 2.3 branding (Glossy Deep Purple and Gold theme)
+val LfrajaPurple = Color(0xFFFFD700) // Luxurious Gold Accent
+val LfrajaLightPurple = Color(0xFF2B1C4B) // Premium Glossy Deep Purple
+val LfrajaDeepPurple = Color(0xFF130A24) // Royal Midnight Deep Purple
 val WhatsAppGreen = Color(0xFF25D366)
 val FacebookBlue = Color(0xFF1877F2)
 val BackgroundGray = Color(0xFFFAFAFC)
@@ -87,7 +100,27 @@ fun LfrajaAppContent(viewModel: MainViewModel) {
             when (currentScreen) {
                 "splash" -> SplashScreen(viewModel)
                 "main" -> MainScreen(viewModel)
-                "player" -> VideoPlayerScreen(viewModel)
+                "player" -> {
+                    // Keep MainScreen active underneath to preserve state perfectly
+                    MainScreen(viewModel)
+                    
+                    // Show player in a completely separate window/view (Dialog overlay)
+                    androidx.compose.ui.window.Dialog(
+                        onDismissRequest = { viewModel.stopPlayer() },
+                        properties = androidx.compose.ui.window.DialogProperties(
+                            usePlatformDefaultWidth = false,
+                            dismissOnBackPress = true,
+                            dismissOnClickOutside = false
+                        )
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = Color.Black
+                        ) {
+                            VideoPlayerScreen(viewModel)
+                        }
+                    }
+                }
             }
 
             // Global Overlay Dialog (Simulating local notification push alert)
@@ -242,20 +275,6 @@ fun MainScreen(viewModel: MainViewModel) {
                         Spacer(modifier = Modifier.width(4.dp))
 
                         IconButton(
-                            onClick = { viewModel.toggleDarkMode() },
-                            modifier = Modifier.testTag("theme_toggle_button")
-                        ) {
-                            Icon(
-                                imageVector = if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                contentDescription = "Toggle Theme",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        IconButton(
                             onClick = { viewModel.openMenuOverlay(true) },
                             modifier = Modifier.testTag("header_menu_button")
                         ) {
@@ -271,10 +290,11 @@ fun MainScreen(viewModel: MainViewModel) {
                     // Centered branding verbatim title "Lfraja 2.3"
                     Text(
                         text = "Lfraja 2.3",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontFamily = FontFamily.SansSerif,
-                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        fontFamily = FontFamily.Cursive,
+                        color = LfrajaPurple,
                         textAlign = TextAlign.End
                     )
                 }
@@ -491,24 +511,72 @@ fun MatchesTabScreen(viewModel: MainViewModel) {
 
 @Composable
 fun MatchCard(match: Match, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    // Smooth TV/remote focus scaling & shadow elevation transitions (horizontal card uses elegant 1.04f scale)
+    val focusScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.04f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "matchFocusScale"
+    )
+    val focusElevation by animateDpAsState(
+        targetValue = if (isFocused) 10.dp else 4.dp,
+        animationSpec = tween(durationMillis = 150),
+        label = "matchFocusElevation"
+    )
+    val focusBorderColor by animateColorAsState(
+        targetValue = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+        animationSpec = tween(durationMillis = 150),
+        label = "matchFocusBorder"
+    )
+
+    // Pulse scale for active live match cards
+    val isLiveMatch = match.status == "جارية الآن" || match.isLive
+    val pulseScale by if (isLiveMatch) {
+        val infiniteTransition = rememberInfiniteTransition(label = "matchPulse")
+        infiniteTransition.animateFloat(
+            initialValue = 1.0f,
+            targetValue = 1.02f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "matchPulseScale"
+        )
+    } else {
+        remember { mutableStateOf(1.0f) }
+    }
+
+    val finalScale = focusScale * pulseScale
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
-            .clickable { onClick() }
+            .graphicsLayer {
+                scaleX = finalScale
+                scaleY = finalScale
+            }
             .shadow(
-                elevation = 4.dp,
+                elevation = focusElevation,
                 shape = RoundedCornerShape(16.dp),
                 ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
             )
             .border(
                 BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                    width = if (isFocused) 2.dp else 1.dp,
+                    color = focusBorderColor
                 ),
                 shape = RoundedCornerShape(16.dp)
-            ),
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick
+            )
+            .focusable(interactionSource = interactionSource),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -701,8 +769,22 @@ fun ChannelsTabScreen(viewModel: MainViewModel) {
         }
     }
 
+    val focusRequester = remember { FocusRequester() }
+    var hasRequestedFocus by remember { mutableStateOf(false) }
+
+    LaunchedEffect(filteredChannels) {
+        if (filteredChannels.isNotEmpty() && !hasRequestedFocus) {
+            try {
+                focusRequester.requestFocus()
+                hasRequestedFocus = true
+            } catch (e: Exception) {
+                // Ignore focus errors
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        // Category filters tab
+        // Category filters tab with dynamic material colors
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -715,56 +797,116 @@ fun ChannelsTabScreen(viewModel: MainViewModel) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
-                        .background(if (isActive) LfrajaPurple else Color.White)
-                        .border(1.dp, if (isActive) LfrajaPurple else Color(0xFFE5E7EB), RoundedCornerShape(20.dp))
+                        .background(if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                        .border(
+                            1.dp,
+                            if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                            RoundedCornerShape(20.dp)
+                        )
                         .clickable { selectedCategory = cat }
                         .padding(horizontal = 16.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = cat,
-                        color = if (isActive) Color.White else Color.DarkGray,
+                        color = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif
                     )
                 }
             }
         }
 
-        // Channels Grid (matching Image 2)
-        LazyVerticalGrid(
+        // Channels Grid with autofocus on launch support
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
             columns = GridCells.Fixed(3),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 8.dp),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            items(filteredChannels) { channel ->
-                ChannelGridItem(channel = channel, onClick = { viewModel.playChannel(channel) })
+            itemsIndexed(filteredChannels) { index, channel ->
+                val itemModifier = if (index == 0) Modifier.focusRequester(focusRequester) else Modifier
+                ChannelGridItem(
+                    channel = channel,
+                    modifier = itemModifier,
+                    onClick = { viewModel.playChannel(channel) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun ChannelGridItem(channel: Channel, onClick: () -> Unit) {
+fun ChannelGridItem(channel: Channel, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    // Smooth TV/remote focus scaling & shadow elevation transitions
+    val focusScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.10f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "focusScale"
+    )
+    val logoScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.15f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "logoScale"
+    )
+    val glowColor = if (channel.id.contains("bein") || channel.isLive) Color(0xFF9C27B0) else Color(0xFFFFB300)
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (isFocused) 0.35f else 0.0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "glowAlpha"
+    )
+    val focusElevation by animateDpAsState(
+        targetValue = if (isFocused) 12.dp else 4.dp,
+        animationSpec = tween(durationMillis = 150),
+        label = "focusElevation"
+    )
+
+    // Gentle 2-second client-side pulse animation on active live channel cards
+    val pulseScale by if (channel.isLive) {
+        val infiniteTransition = rememberInfiniteTransition(label = "livePulse")
+        infiniteTransition.animateFloat(
+            initialValue = 1.0f,
+            targetValue = 1.04f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulse"
+        )
+    } else {
+        remember { mutableStateOf(1.0f) }
+    }
+
+    val finalScale = focusScale * pulseScale
+
     Card(
-        modifier = Modifier
+        modifier = modifier
             .padding(6.dp)
             .aspectRatio(0.85f)
-            .clickable { onClick() }
+            .graphicsLayer {
+                scaleX = finalScale
+                scaleY = finalScale
+            }
             .shadow(
-                elevation = 4.dp,
+                elevation = focusElevation,
                 shape = RoundedCornerShape(16.dp),
-                ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                ambientColor = Color(0xFF9C27B0).copy(alpha = 0.12f),
+                spotColor = Color(0xFF9C27B0).copy(alpha = 0.18f)
             )
             .border(
-                BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-                ),
+                BorderStroke(1.dp, Color(0xFFE2E8F0)),
                 shape = RoundedCornerShape(16.dp)
-            ),
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick
+            )
+            .focusable(interactionSource = interactionSource),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -772,74 +914,134 @@ fun ChannelGridItem(channel: Channel, onClick: () -> Unit) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(8.dp),
+                    .padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // TV Icon / Logo placeholder
+                // Official Logo centered and high quality with transparent background
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
-                            )
-                        ),
+                        .weight(1f)
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (channel.logoUrl.isNotEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            AsyncImage(
-                                model = channel.logoUrl,
-                                contentDescription = channel.name,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                            if (channel.isLive) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(4.dp)
-                                        .background(Color(0xFFEF4444), RoundedCornerShape(3.dp))
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "مباشر",
-                                        color = Color.White,
-                                        fontSize = 7.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = FontFamily.SansSerif
-                                    )
-                                }
-                            }
-                        }
+                    val resolvedLogoUrl = if (channel.logoUrl.isNotEmpty()) {
+                        channel.logoUrl
                     } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Tv,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(26.dp)
-                            )
-                            if (channel.isLive) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(top = 2.dp)
-                                        .background(Color(0xFFEF4444), RoundedCornerShape(3.dp))
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                ) {
-                                    Text(
-                                        text = "مباشر",
-                                        color = Color.White,
-                                        fontSize = 7.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = FontFamily.SansSerif
-                                    )
-                                }
+                        // Dynamic robust fallback if logoUrl is empty
+                        when {
+                            channel.id.contains("bein_max") || channel.id.contains("news") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png"
+                            channel.id.contains("arryadia") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Arryadia_logo.svg/512px-Arryadia_logo.svg.png"
+                            channel.id.contains("aloula") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Al_Aoula.svg/512px-Al_Aoula.svg.png"
+                            channel.id.contains("2m") -> "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Logo_2M_Maroc.png/320px-Logo_2M_Maroc.png"
+                            else -> ""
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(70.dp)
+                            .graphicsLayer {
+                                scaleX = logoScale
+                                scaleY = logoScale
                             }
+                            .coloredShadow(
+                                color = glowColor,
+                                alpha = glowAlpha,
+                                borderRadius = 12.dp,
+                                shadowRadius = 16.dp,
+                                spread = 4.dp,
+                                offsetX = 0.dp,
+                                offsetY = 0.dp
+                            )
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFF1F5F9)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (resolvedLogoUrl.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(Color(0xFF6B21A8), Color(0xFF3B0764))
+                                        )
+                                    )
+                                    .padding(6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = channel.name,
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        } else {
+                            SubcomposeAsyncImage(
+                                model = resolvedLogoUrl,
+                                contentDescription = channel.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .padding(4.dp),
+                                loading = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = Color(0xFF9C27B0),
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                },
+                                error = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    colors = listOf(Color(0xFF6B21A8), Color(0xFF3B0764))
+                                                )
+                                            )
+                                            .padding(6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = channel.name,
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    // Pulse/active live indicator label
+                    if (channel.isLive) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .background(Color(0xFFEF4444), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "مباشر",
+                                color = Color.White,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.SansSerif
+                            )
                         }
                     }
                 }
@@ -887,6 +1089,39 @@ fun ChannelGridItem(channel: Channel, onClick: () -> Unit) {
     }
 }
 
+// Custom colored soft shadow for elegant floating premium items
+fun Modifier.coloredShadow(
+    color: Color = Color(0xFF9C27B0),
+    alpha: Float = 0.12f,
+    borderRadius: androidx.compose.ui.unit.Dp = 20.dp,
+    shadowRadius: androidx.compose.ui.unit.Dp = 20.dp,
+    spread: androidx.compose.ui.unit.Dp = 2.dp,
+    offsetX: androidx.compose.ui.unit.Dp = 0.dp,
+    offsetY: androidx.compose.ui.unit.Dp = 10.dp
+): Modifier = this.drawBehind {
+    val shadowColor = color.copy(alpha = alpha).toArgb()
+    drawIntoCanvas { canvas ->
+        val paint = Paint()
+        val frameworkPaint = paint.asFrameworkPaint()
+        frameworkPaint.color = android.graphics.Color.TRANSPARENT
+        frameworkPaint.setShadowLayer(
+            shadowRadius.toPx(),
+            offsetX.toPx(),
+            offsetY.toPx(),
+            shadowColor
+        )
+        canvas.drawRoundRect(
+            left = -spread.toPx(),
+            top = -spread.toPx(),
+            right = size.width + spread.toPx(),
+            bottom = size.height + spread.toPx(),
+            radiusX = borderRadius.toPx(),
+            radiusY = borderRadius.toPx(),
+            paint = paint
+        )
+    }
+}
+
 // 2.C. SUBSCRIPTION TAB (Premium list of subscription cards and a gorgeous hero header)
 @Composable
 fun SubscriptionTabScreen(viewModel: MainViewModel) {
@@ -902,7 +1137,15 @@ fun SubscriptionTabScreen(viewModel: MainViewModel) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp)
-                .shadow(6.dp, RoundedCornerShape(20.dp)),
+                .coloredShadow(
+                    color = Color(0xFF9C27B0),
+                    alpha = 0.12f,
+                    borderRadius = 20.dp,
+                    shadowRadius = 20.dp,
+                    spread = 2.dp,
+                    offsetX = 0.dp,
+                    offsetY = 10.dp
+                ),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
         ) {
@@ -1008,6 +1251,7 @@ fun SubscriptionTabScreen(viewModel: MainViewModel) {
 fun MenuOverlayScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val currentActivity = context as? ComponentActivity
+    val star6Mode by viewModel.morocco6Mode.collectAsStateWithLifecycle()
 
     Box(
         modifier = Modifier
@@ -1022,9 +1266,9 @@ fun MenuOverlayScreen(viewModel: MainViewModel) {
                 .width(280.dp)
                 .align(Alignment.CenterStart)
                 .clickable(enabled = false) {}
-                .shadow(8.dp),
-            shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+                .shadow(12.dp),
+            shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier
@@ -1035,23 +1279,75 @@ fun MenuOverlayScreen(viewModel: MainViewModel) {
                 // Header verbatim logo
                 Text(
                     text = "Lfraja 2.3",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = LfrajaPurple,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = FontFamily.SansSerif,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 24.dp)
                 )
 
                 Text(
                     text = "أيقونة الترفيه بإمتياز",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    fontWeight = FontWeight.Light,
-                    modifier = Modifier.padding(bottom = 24.dp)
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 20.dp)
                 )
 
-                Divider(color = Color(0xFFE5E7EB), thickness = 1.dp)
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), thickness = 1.dp)
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // Switch for Morocco *6 Data Saver Mode
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Switch(
+                            checked = star6Mode,
+                            onCheckedChange = { viewModel.toggleMorocco6Mode() },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                            ),
+                            modifier = Modifier.scale(0.8f)
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "توفير البيانات (*6)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
 
                 // Five verbatim options matching image_3.png
                 MenuOptionItem(
@@ -1097,12 +1393,13 @@ fun MenuOverlayScreen(viewModel: MainViewModel) {
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Row of purple social icons matching bottom of image_3.png
+                // Row of modern social icons
                 Text(
                     text = "تابعنا على منصاتنا الاجتماعية",
-                    fontSize = 11.sp,
-                    color = Color.LightGray,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    modifier = Modifier.padding(bottom = 12.dp)
                 )
 
                 Row(
@@ -1125,7 +1422,7 @@ fun MenuOverlayScreen(viewModel: MainViewModel) {
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .background(LfrajaLightPurple)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                                 .clickable {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                     context.startActivity(intent)
@@ -1135,7 +1432,7 @@ fun MenuOverlayScreen(viewModel: MainViewModel) {
                             Icon(
                                 imageVector = icon,
                                 contentDescription = null,
-                                tint = LfrajaPurple,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -1151,10 +1448,10 @@ fun MenuOptionItem(title: String, icon: ImageVector, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
+            .padding(vertical = 5.dp)
             .clickable { onClick() },
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = LfrajaLightPurple.copy(alpha = 0.4f))
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
     ) {
         Row(
             modifier = Modifier
@@ -1166,8 +1463,8 @@ fun MenuOptionItem(title: String, icon: ImageVector, onClick: () -> Unit) {
             Icon(
                 imageVector = Icons.Default.KeyboardArrowLeft,
                 contentDescription = null,
-                tint = LfrajaPurple,
-                modifier = Modifier.size(18.dp)
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                modifier = Modifier.size(16.dp)
             )
 
             Row(
@@ -1175,16 +1472,17 @@ fun MenuOptionItem(title: String, icon: ImageVector, onClick: () -> Unit) {
             ) {
                 Text(
                     text = title,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.DarkGray,
+                    fontFamily = FontFamily.SansSerif,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                     textAlign = TextAlign.End
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = LfrajaPurple,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -1209,24 +1507,61 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
         }
     }
 
-    // Set media item when selection changes
-    LaunchedEffect(selectedChannel) {
-        selectedChannel?.let { ch ->
-            // In a real application, star6Mode would alter the MediaSource factory headers (User-Agent, Referer)
-            // Example:
-            // val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            // if (star6Mode) {
-            //     httpDataSourceFactory.setDefaultRequestProperties(mapOf("User-Agent" to "WhatsApp/2.21.11", "Referer" to "facebook.com"))
-            // }
-            val mediaItem = MediaItem.fromUri(Uri.parse(ch.streamUrl))
-            exoPlayer.setMediaItem(mediaItem)
-            exoPlayer.prepare()
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Listen to ExoPlayer events
+    DisposableEffect(exoPlayer) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == androidx.media3.common.Player.STATE_BUFFERING) {
+                    isLoading = true
+                } else if (playbackState == androidx.media3.common.Player.STATE_READY) {
+                    isLoading = false
+                    errorMessage = null
+                } else if (playbackState == androidx.media3.common.Player.STATE_IDLE) {
+                    isLoading = false
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                isLoading = false
+                errorMessage = "خطأ في تشغيل البث المباشر: ${error.localizedMessage ?: "تنسيق غير مدعوم أو رابط تالف"}"
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
         }
     }
 
-    // Dispose player
+    // Set media item when selection changes
+    LaunchedEffect(selectedChannel) {
+        selectedChannel?.let { ch ->
+            try {
+                isLoading = true
+                errorMessage = null
+                val mediaItem = MediaItem.fromUri(Uri.parse(ch.streamUrl))
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.prepare()
+                exoPlayer.play()
+            } catch (e: Exception) {
+                isLoading = false
+                errorMessage = "فشل بدء البث: ${e.localizedMessage ?: "رابط البث غير صالح"}"
+            }
+        }
+    }
+
+    val activity = context as? android.app.Activity
+
+    // Dispose player and restore orientation
     DisposableEffect(Unit) {
         onDispose {
+            try {
+                activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            } catch (e: Exception) {
+                // Safe fall-back
+            }
             exoPlayer.release()
         }
     }
@@ -1261,10 +1596,33 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                 fontWeight = FontWeight.Bold
             )
 
-            // Dynamic Live status indicator
+            // Dynamic Live status indicator and screen rotation toggle
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Interactive screen flip button
+                IconButton(
+                    onClick = {
+                        try {
+                            val currentOrientation = activity?.requestedOrientation
+                            if (currentOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
+                                activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            } else {
+                                activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            }
+                        } catch (e: Exception) {
+                            // Safe fall-back
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ScreenRotation,
+                        contentDescription = "تدوير الشاشة",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .size(8.dp)
@@ -1281,7 +1639,8 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.1f)
-                .background(Color.DarkGray)
+                .background(Color.DarkGray),
+            contentAlignment = Alignment.Center
         ) {
             AndroidView(
                 factory = { ctx ->
@@ -1292,6 +1651,63 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Spinner during loading
+            if (isLoading) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 3.dp,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+
+            // Error Message display
+            errorMessage?.let { errorText ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.85f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "⚠️",
+                            fontSize = 24.sp,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        Text(
+                            text = errorText,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                selectedChannel?.let { ch ->
+                                    try {
+                                        isLoading = true
+                                        errorMessage = null
+                                        val mediaItem = MediaItem.fromUri(Uri.parse(ch.streamUrl))
+                                        exoPlayer.setMediaItem(mediaItem)
+                                        exoPlayer.prepare()
+                                        exoPlayer.play()
+                                    } catch (e: Exception) {
+                                        isLoading = false
+                                        errorMessage = "فشل بدء البث: ${e.localizedMessage ?: "رابط البث غير صالح"}"
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("إعادة المحاولة", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
 
             // Ad-Blocker blocked overlays
             if (adBlocker) {
@@ -1317,7 +1733,7 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                 .weight(1.0f)
                 .shadow(8.dp, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier
@@ -1355,7 +1771,7 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                 Text(
                     text = "اختر الباقة المناسبة لك واستمتع بمشاهدة جميع قنواتك المفضلة بدون انقطاع.",
                     fontSize = 11.sp,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     textAlign = TextAlign.End,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1409,8 +1825,8 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                         .padding(vertical = 4.dp)
                         .clickable { isAdvancedSettingsOpen = !isAdvancedSettingsOpen },
                     shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFAFAFC)),
-                    border = BorderStroke(1.dp, Color(0xFFECECEC))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
                 ) {
                     Column(
                         modifier = Modifier
@@ -1426,14 +1842,14 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                             Icon(
                                 imageVector = if (isAdvancedSettingsOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                 contentDescription = "Toggle",
-                                tint = Color.Gray
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "إعدادات البث وتعديل الإشارة المتقدمة",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.DarkGray
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(text = "🛠️", fontSize = 12.sp)
@@ -1442,7 +1858,7 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
 
                         if (isAdvancedSettingsOpen) {
                             Spacer(modifier = Modifier.height(12.dp))
-                            HorizontalDivider(color = Color(0xFFE5E7EB), thickness = 1.dp)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), thickness = 1.dp)
                             Spacer(modifier = Modifier.height(8.dp))
 
                             // 1. Morocco *6 Optimization toggle
@@ -1460,7 +1876,7 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                                 )
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text("6* المغربية📶", color = LfrajaPurple, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                                    Text("تحسين البث ليتناسب مع اشتراكات السوشيال ميديا.", fontSize = 9.sp, color = Color.Gray)
+                                    Text("تحسين البث ليتناسب مع اشتراكات السوشيال ميديا.", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                                 }
                             }
 
@@ -1477,8 +1893,8 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                                     onCheckedChange = { viewModel.toggleAdBlocker() }
                                 )
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text("حاجب الإعلانات والمنبثقات 🚫", color = Color.DarkGray, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                                    Text("عزل الإعلانات المزعجة التلقائية أثناء البث.", fontSize = 9.sp, color = Color.Gray)
+                                    Text("حاجب الإعلانات والمنبثقات 🚫", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text("عزل الإعلانات المزعجة التلقائية أثناء البث.", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                                 }
                             }
 
@@ -1495,8 +1911,8 @@ fun VideoPlayerScreen(viewModel: MainViewModel) {
                                     onCheckedChange = { viewModel.toggleDrm() }
                                 )
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text("التشفير التلقائي وحل الشاشة السوداء (DRM) 🔐", color = Color.DarkGray, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                                    Text("حل مشاكل القنوات ذات الحماية العالية.", fontSize = 9.sp, color = Color.Gray)
+                                    Text("التشفير التلقائي وحل الشاشة السوداء (DRM) 🔐", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text("حل مشاكل القنوات ذات الحماية العالية.", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                                 }
                             }
                         }
@@ -1762,7 +2178,8 @@ fun AdminPanelScreen(viewModel: MainViewModel) {
                     "ai" to "الذكاء AI والتحليلات",
                     "matches" to "محرر المباريات",
                     "channels" to "محرر القنوات",
-                    "m3u" to "استيراد M3U"
+                    "m3u" to "استيراد M3U",
+                    "config" to "إعدادات Remote Config"
                 ).forEach { (tabId, label) ->
                     val isActive = activeSubTab == tabId
                     Button(
@@ -1775,7 +2192,7 @@ fun AdminPanelScreen(viewModel: MainViewModel) {
                     ) {
                         Text(
                             text = label,
-                            color = if (isActive) Color.White else LfrajaPurple,
+                            color = if (isActive) Color(0xFF130A24) else LfrajaPurple,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -1791,6 +2208,7 @@ fun AdminPanelScreen(viewModel: MainViewModel) {
                 "matches" -> AdminMatchesTab(matchesList, viewModel)
                 "channels" -> AdminChannelsTab(channelsList, viewModel)
                 "m3u" -> AdminM3uTab(viewModel)
+                "config" -> AdminRemoteConfigTab(viewModel)
             }
         }
     }
@@ -2469,6 +2887,168 @@ fun AdminM3uTab(viewModel: MainViewModel) {
             shape = RoundedCornerShape(8.dp)
         ) {
             Text("استيراد وتحليل القنوات", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun AdminRemoteConfigTab(viewModel: MainViewModel) {
+    val channelsList by viewModel.channels.collectAsStateWithLifecycle()
+    val remoteConfigStatus by viewModel.remoteConfigStatus.collectAsStateWithLifecycle()
+    
+    var selectedChannelId by remember { mutableStateOf("") }
+    var logoUrlOverride by remember { mutableStateOf("") }
+    var streamUrlOverride by remember { mutableStateOf("") }
+
+    // Update selected channel inputs when channel selection changes
+    LaunchedEffect(selectedChannelId) {
+        val selectedCh = channelsList.find { it.id == selectedChannelId }
+        if (selectedCh != null) {
+            logoUrlOverride = selectedCh.logoUrl
+            streamUrlOverride = selectedCh.streamUrl
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text("مركز التحكم في المتغيرات عن بعد Remote Config 🌐", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            "تحديث شعارات القنوات وروابط البث عن بعد فورياً لجميع المشاهدين وبشكل ديناميكي عبر Firebase Remote Config.",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            textAlign = TextAlign.End
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Remote Config Status Bar
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("🛰️", fontSize = 16.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("حالة Remote Config:", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(remoteConfigStatus, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Selector / input card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("تجاوز إعدادات القناة (Logo & Stream) عن بعد", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Select Channel Row / Dropdown simulation
+                Text("1. اختر القناة المراد تحديثها:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(6.dp))
+                
+                // Horizontal list of selectable channels
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(channelsList.size) { index ->
+                        val ch = channelsList[index]
+                        val isSelected = selectedChannelId == ch.id
+                        Card(
+                            modifier = Modifier.clickable { selectedChannelId = ch.id },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) LfrajaPurple else MaterialTheme.colorScheme.surface
+                            ),
+                            border = BorderStroke(1.dp, if (isSelected) Color.Transparent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = ch.name,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (selectedChannelId.isNotEmpty()) {
+                    Text("2. أدخل القيم الجديدة لـ Remote Config:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = logoUrlOverride,
+                        onValueChange = { logoUrlOverride = it },
+                        label = { Text("رابط الشعار الجديد (Logo URL Override)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = streamUrlOverride,
+                        onValueChange = { streamUrlOverride = it },
+                        label = { Text("رابط البث الجديد (Stream URL Override)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            viewModel.publishRemoteConfigOverride(selectedChannelId, logoUrlOverride, streamUrlOverride)
+                            viewModel.fetchAndApplyRemoteConfig()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = LfrajaPurple),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("نشر التحديث لـ Remote Config", fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("الرجاء تحديد قناة من القائمة أعلاه للبدء", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Manual fetch button
+        OutlinedButton(
+            onClick = { viewModel.fetchAndApplyRemoteConfig() },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text("جلب وتطبيق تحديثات Remote Config فوراً", fontWeight = FontWeight.Bold)
         }
     }
 }

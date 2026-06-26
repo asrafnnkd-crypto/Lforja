@@ -264,4 +264,72 @@ object FirebaseManager {
 
         db.collection("users").document(userId).set(data)
     }
+
+    // Firebase Remote Config simulation & real interface integration
+    private val _remoteConfigStatus = MutableStateFlow("مستعد (Firebase Remote Config)")
+    val remoteConfigStatus: StateFlow<String> = _remoteConfigStatus.asStateFlow()
+
+    fun fetchAndApplyRemoteConfig() {
+        if (!isFirebaseAvailable) {
+            _remoteConfigStatus.value = "الوضع المحلي نشط: تم تحميل إعدادات القنوات الافتراضية بنجاح"
+            return
+        }
+        _remoteConfigStatus.value = "جاري جلب إعدادات Remote Config المحدثة..."
+        
+        val db = FirebaseFirestore.getInstance()
+        db.collection("remote_config").document("channels_overrides")
+            .get()
+            .addOnSuccessListener { document ->
+                if (document != null && document.exists()) {
+                    val overrides = document.data ?: return@addOnSuccessListener
+                    scope.launch {
+                        overrides.forEach { (channelId, data) ->
+                            val configMap = data as? Map<*, *> ?: return@forEach
+                            val logoUrl = configMap["logoUrl"] as? String
+                            val streamUrl = configMap["streamUrl"] as? String
+                            
+                            val localChannel = repository?.getChannelById(channelId)
+                            if (localChannel != null) {
+                                val updated = localChannel.copy(
+                                    logoUrl = if (!logoUrl.isNullOrEmpty()) logoUrl else localChannel.logoUrl,
+                                    streamUrl = if (!streamUrl.isNullOrEmpty()) streamUrl else localChannel.streamUrl
+                                )
+                                repository?.insertChannel(updated)
+                            }
+                        }
+                        _remoteConfigStatus.value = "تم تطبيق تحديثات Remote Config بنجاح!"
+                    }
+                } else {
+                    _remoteConfigStatus.value = "لم يتم العثور على أي قيم مخصصة في Remote Config. استخدام الافتراضي."
+                }
+            }
+            .addOnFailureListener { e ->
+                _remoteConfigStatus.value = "فشل الاتصال بـ Remote Config: ${e.message}"
+            }
+    }
+
+    fun publishRemoteConfigOverride(channelId: String, logoUrl: String, streamUrl: String) {
+        if (!isFirebaseAvailable) return
+        val db = FirebaseFirestore.getInstance()
+        val docRef = db.collection("remote_config").document("channels_overrides")
+        
+        docRef.get().addOnSuccessListener { document ->
+            val currentData = if (document.exists()) {
+                document.data?.toMutableMap() ?: mutableMapOf()
+            } else {
+                mutableMapOf()
+            }
+            
+            val overrideData = hashMapOf(
+                "logoUrl" to logoUrl,
+                "streamUrl" to streamUrl
+            )
+            currentData[channelId] = overrideData
+            
+            docRef.set(currentData)
+                .addOnSuccessListener {
+                    _remoteConfigStatus.value = "تم نشر وتحديث Remote Config للقناة $channelId بنجاح!"
+                }
+        }
+    }
 }

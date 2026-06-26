@@ -14,17 +14,17 @@ import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme =
   darkColorScheme(
-    primary = Color(0xFF9F70FF),      // Lfraja Vivid Purple
-    secondary = Color(0xFFC084FC),    // Light Purple Accent
-    tertiary = Color(0xFF38BDF8),     // Teal/Ice Blue for secondary actions
-    background = Color(0xFF0B0715),   // Premium cinematic deep purple-black background
-    surface = Color(0xFF150F26),      // Premium card dark surface
-    onPrimary = Color.White,
+    primary = Color(0xFFFFD700),      // Premium Gold Accent
+    secondary = Color(0xFF9F70FF),    // Vivid Purple Accent
+    tertiary = Color(0xFFFFC107),     // Rich Amber Gold
+    background = Color(0xFF0C071A),   // Glossy cinematic deep purple-black background
+    surface = Color(0xFF170F2E),      // Glossy dark purple card surface
+    onPrimary = Color(0xFF0C071A),    // High-contrast deep purple text on gold buttons
     onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFFF1F5F9), // Soft light-gray text
-    onSurface = Color(0xFFF1F5F9),    // Soft light-gray text on cards
-    surfaceVariant = Color(0xFF241B3B) // Border/divider shade in dark mode
+    onTertiary = Color(0xFF0C071A),
+    onBackground = Color(0xFFF8FAFC), // Ultra soft white
+    onSurface = Color(0xFFF8FAFC),    // Ultra soft white
+    surfaceVariant = Color(0xFF2B1C4B) // Luxurious slate purple highlight border
   )
 
 private val LightColorScheme =
@@ -44,21 +44,10 @@ private val LightColorScheme =
 
 @Composable
 fun MyApplicationTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = true,
+  darkTheme: Boolean = false,
+  dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
-
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
-    }
-
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+  val colors = if (darkTheme) DarkColorScheme else LightColorScheme
+  MaterialTheme(colorScheme = colors, typography = Typography, content = content)
 }

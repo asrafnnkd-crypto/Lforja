@@ -63,7 +63,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val drmEnabled: StateFlow<Boolean> = _drmEnabled.asStateFlow()
 
     // Dark/Light mode state
-    private val _isDarkMode = MutableStateFlow(true) // Default to Dark mode as requested for sport streaming
+    private val _isDarkMode = MutableStateFlow(false) // Default to Light mode matching the user's requested layout
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
     fun toggleDarkMode() {
@@ -105,6 +105,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Firebase live status flow
     val firebaseStatus: StateFlow<String> = FirebaseManager.connectionStatus
 
+    // Firebase Remote Config status flow
+    val remoteConfigStatus: StateFlow<String> = FirebaseManager.remoteConfigStatus
+
     // Admin secure unlock code 2029
     private val _isAdminUnlocked = MutableStateFlow(false)
     val isAdminUnlocked: StateFlow<Boolean> = _isAdminUnlocked.asStateFlow()
@@ -139,6 +142,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             // Initialize Firebase manager with real-time sync capabilities
             FirebaseManager.init(application, repository)
+            FirebaseManager.fetchAndApplyRemoteConfig()
             simulateSplashLoading()
             runAiAnalyticsEngine()
         }
@@ -263,6 +267,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             postAdminNotification("تم حذف القناة من القائمة")
             runAiAnalyticsEngine()
         }
+    }
+
+    fun fetchAndApplyRemoteConfig() {
+        FirebaseManager.fetchAndApplyRemoteConfig()
+    }
+
+    fun publishRemoteConfigOverride(channelId: String, logoUrl: String, streamUrl: String) {
+        FirebaseManager.publishRemoteConfigOverride(channelId, logoUrl, streamUrl)
     }
 
     // Parsing dynamic M3U playlists

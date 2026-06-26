@@ -36,6 +36,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels")
     fun getAllChannels(): Flow<List<Channel>>
 
+    @Query("SELECT * FROM channels WHERE id = :id LIMIT 1")
+    suspend fun getChannelById(id: String): Channel?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChannel(channel: Channel)
 
@@ -100,6 +103,7 @@ class LfrajaRepository(private val db: AppDatabase) {
     suspend fun clearMatches() = db.matchDao().clearAllMatches()
 
     suspend fun insertChannel(channel: Channel) = db.channelDao().insertChannel(channel)
+    suspend fun getChannelById(id: String): Channel? = db.channelDao().getChannelById(id)
     suspend fun updateChannel(channel: Channel) = db.channelDao().updateChannel(channel)
     suspend fun deleteChannelById(id: String) = db.channelDao().deleteChannelById(id)
     suspend fun clearChannels() = db.channelDao().clearAllChannels()
@@ -177,6 +181,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_max_1",
                 name = "beIN Sports MAX 1",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://demo.unified-streaming.com/k8s/live/stable/sintel.smil/.m3u8",
                 category = "beIN Sports",
                 isLive = true,
@@ -186,6 +191,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_max_2",
                 name = "beIN Sports MAX 2",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://playertest.longtailvideo.com/adaptive/bipbop/bipbop.m3u8",
                 category = "beIN Sports",
                 isLive = true,
@@ -195,6 +201,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_max_3",
                 name = "beIN Sports MAX 3",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://demo.unified-streaming.com/k8s/live/stable/sintel.smil/.m3u8",
                 category = "beIN Sports",
                 isLive = false,
@@ -204,6 +211,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_max_4",
                 name = "beIN Sports MAX 4",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://playertest.longtailvideo.com/adaptive/bipbop/bipbop.m3u8",
                 category = "beIN Sports",
                 isLive = false,
@@ -213,6 +221,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_max_5",
                 name = "beIN Sports MAX 5",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://demo.unified-streaming.com/k8s/live/stable/sintel.smil/.m3u8",
                 category = "beIN Sports",
                 isLive = false,
@@ -222,6 +231,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_max_6",
                 name = "beIN Sports MAX 6",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://playertest.longtailvideo.com/adaptive/bipbop/bipbop.m3u8",
                 category = "beIN Sports",
                 isLive = false,
@@ -231,6 +241,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_news",
                 name = "beIN Sports NEWS",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://demo.unified-streaming.com/k8s/live/stable/sintel.smil/.m3u8",
                 category = "beIN Sports",
                 isLive = true,
@@ -240,6 +251,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "arryadia",
                 name = "Arryadia TNT",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Arryadia_logo.svg/512px-Arryadia_logo.svg.png",
                 streamUrl = "https://demo.unified-streaming.com/k8s/live/stable/sintel.smil/.m3u8",
                 category = "المغربية",
                 isLive = true,
@@ -249,6 +261,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "aloula",
                 name = "Aloula",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Al_Aoula.svg/512px-Al_Aoula.svg.png",
                 streamUrl = "https://playertest.longtailvideo.com/adaptive/bipbop/bipbop.m3u8",
                 category = "المغربية",
                 isLive = true,
@@ -258,6 +271,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "2m",
                 name = "2M",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Logo_2M_Maroc.png/320px-Logo_2M_Maroc.png",
                 streamUrl = "https://demo.unified-streaming.com/k8s/live/stable/sintel.smil/.m3u8",
                 category = "المغربية",
                 isLive = true,
@@ -267,6 +281,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_movies_1",
                 name = "beIN Movies 1",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://playertest.longtailvideo.com/adaptive/bipbop/bipbop.m3u8",
                 category = "ترفيه وأفلام",
                 isLive = false,
@@ -276,6 +291,7 @@ class LfrajaRepository(private val db: AppDatabase) {
             Channel(
                 id = "bein_movies_2",
                 name = "beIN Movies 2",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/BeIN_Sports_logo.svg/512px-BeIN_Sports_logo.svg.png",
                 streamUrl = "https://demo.unified-streaming.com/k8s/live/stable/sintel.smil/.m3u8",
                 category = "ترفيه وأفلام",
                 isLive = false,
